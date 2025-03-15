@@ -1,17 +1,12 @@
+#pragma once
+
 #include <memory>
 #include <cstddef>
 #include <iostream>
 #include <iterator>
 #include <initializer_list>
-// #include <ranges> // for features
 
-// Just for reference
-// #include <vector>
-// #include <forward_list>
-// #include <list>
-// #include <stack>
-// #include <queue>
-// #include <deque>
+static int cnt = 0;
 
 template<typename T, size_t NodeMaxSize = 10, typename Allocator = std::allocator<T>>
 class unrolled_list {
@@ -22,10 +17,6 @@ public:
     using difference_type = ptrdiff_t;
     using size_type = size_t;
     using allocator_type = Allocator;
-
-    // using propagate_on_container_copy_assignment = std::true_type;
-    // using propagate_on_container_move_assignment = std::true_type;
-    // using propagate_on_container_swap = std::true_type;
 
 private:
     struct Node {
@@ -51,19 +42,23 @@ public:
         using reference = T&;
         using pointer = T*;
         using difference_type = ptrdiff_t;
+        using size_type = size_t;
     
     private:
         Node* current_node;
-        size_t current_pos;
+        size_type current_pos;
 
+        friend unrolled_list;
     public:
-        iterator(Node* node = nullptr, size_t pos = 0)
+        iterator(Node* node = nullptr, size_type pos = 0)
         : 
             current_node(node), 
             current_pos(pos) 
         {}
+        
+        ~iterator() = default;
 
-        reference operator*() {
+        reference operator*() const {
             return current_node->elements[current_pos];
         }
 
@@ -71,10 +66,14 @@ public:
             return &(current_node->elements[current_pos]);
         }
 
-        iterator& operator++() {
-            if (current_node && current_pos + 1 >= current_node->num_elements) {
-                current_node = current_node->next;
-                current_pos = 0;
+        iterator& operator++() {            
+            if (current_node) {
+                if (current_pos + 1 < current_node->num_elements) {
+                    ++current_pos;
+                } else {
+                    current_node = current_node->next;
+                    current_pos = 0;
+                }
             }
 
             return *this;
@@ -110,13 +109,12 @@ public:
             return temp;
         }
 
-        bool operator!=(const iterator& other) const {
-            return !(*this == other);
-        }
-
-    private:
         bool operator==(const iterator& other) const {
             return current_node == other.current_node && current_pos  == other.current_pos;
+        }
+
+        bool operator!=(const iterator& other) const {
+            return !(*this == other);
         }
     };
 
@@ -132,6 +130,7 @@ public:
         Node* current_node;
         size_t current_pos;
 
+        friend unrolled_list;
     public:
         const_iterator(Node* node = nullptr, size_t pos = 0)
         : 
@@ -154,9 +153,14 @@ public:
         }
 
         const_iterator& operator++() {
-            if (current_node && current_pos + 1 >= current_node->num_elements) {
-                current_node = current_node->next;
-                current_pos = 0;
+            
+            if (current_node) {
+                if (current_pos + 1 < current_node->num_elements) {
+                    ++current_pos;
+                } else {
+                    current_node = current_node->next;
+                    current_pos = 0;
+                }
             }
 
             return *this;
@@ -192,13 +196,12 @@ public:
             return temp;
         }
 
-        bool operator!=(const const_iterator& other) const {
-            return !(*this == other);
-        }
-
-    private:
         bool operator==(const const_iterator& other) const {
             return current_node == other.current_node && current_pos == other.current_pos;
+        }
+
+        bool operator!=(const const_iterator& other) const {
+            return !(*this == other);
         }
     };
 
@@ -213,7 +216,78 @@ public:
             push_back(item);
         }
     }
+
+    unrolled_list(const size_type count, const value_type value) {
+        for (size_type i = 0; i < count; ++i) {
+            push_back(value);
+        }
+    }
     
+    unrolled_list(std::initializer_list<value_type> il) {
+        for (const auto& item : il) {
+            push_back(item);
+        }
+    }
+
+    unrolled_list(const Allocator& alloc) 
+    : 
+        allocator(alloc),
+        node_allocator(alloc) 
+    {
+        head = nullptr;
+        tail = nullptr;
+        total_elements_cnt = 0;
+    }
+
+    unrolled_list(const unrolled_list& other, const Allocator& alloc)
+        : allocator(alloc),
+          node_allocator(alloc),
+          head(other.head),
+          tail(other.tail),
+          total_elements_cnt(other.total_elements_cnt)
+    {
+        other.head = nullptr;
+        other.tail = nullptr;
+        other.total_elements_cnt = 0;
+    }
+
+    template<typename InputIt>
+    unrolled_list(InputIt i, InputIt j) {
+        unrolled_list temp;
+
+        for (; i != j; ++i) {
+            temp.push_back(*i);
+        }
+
+
+        std::swap(temp, *this);
+    }
+
+    template<typename InputIt>
+    unrolled_list(InputIt i, InputIt j, const allocator_type& alloc)
+    :
+        allocator(alloc),
+        node_allocator(alloc),
+        head(nullptr),
+        tail(nullptr),
+        total_elements_cnt(0)
+    {
+        unrolled_list temp;
+        try {
+            for (; i != j; ++i) {
+                temp.push_back(*i);
+            }
+        } catch (...) {
+            temp.~unrolled_list();
+            throw;
+        }
+        swap(temp);
+    }
+
+    ~unrolled_list() {
+        clear();
+    }
+
     unrolled_list& operator=(const unrolled_list& other) {
         if (this != &other) {
             unrolled_list tmp(other);
@@ -231,45 +305,6 @@ public:
         }
 
         return *this;
-    }
-
-    unrolled_list(const size_type count, const value_type value) {
-        for (size_type i = 0; i < count; ++i) {
-            push_back(value);
-        }
-    }
-    
-    unrolled_list(std::initializer_list<value_type> il) {
-        for (const auto& item : il) {
-            push_back(item);
-        }
-    }
-
-    // explicit?
-    unrolled_list(const Allocator& alloc) 
-    : 
-        allocator(alloc),
-        node_allocator(alloc) 
-    {
-        head = nullptr;
-        tail = nullptr;
-        total_elements_cnt = 0;
-    }
-
-    unrolled_list(unrolled_list&& other, const Allocator& alloc)
-        : allocator(alloc),
-          node_allocator(alloc),
-          head(other.head),
-          tail(other.tail),
-          total_elements_cnt(other.total_elements_cnt)
-    {
-        other.head = nullptr;
-        other.tail = nullptr;
-        other.total_elements_cnt = 0;
-    }
-
-    ~unrolled_list() {
-        clear();
     }
 
     allocator_type get_allocator() {
@@ -519,9 +554,13 @@ public:
 
     void push_back(const value_type& t) {
         if (tail && tail->num_elements < NodeMaxSize) {
-            std::allocator_traits<Allocator>::construct(allocator, tail->elements + tail->num_elements, t);
-            ++tail->num_elements;
-            ++total_elements_cnt;
+            try {
+                std::allocator_traits<Allocator>::construct(allocator, tail->elements + tail->num_elements, t);
+                ++tail->num_elements;
+                ++total_elements_cnt;
+            } catch (...) {
+                throw;
+            }
         } else {
             Node* new_node = std::allocator_traits<NodeAllocator>::allocate(node_allocator, 1);
             new_node->num_elements = 0;
@@ -529,7 +568,8 @@ public:
             new_node->next = nullptr;
             try {
                 std::allocator_traits<Allocator>::construct(allocator, new_node->elements, t);
-                new_node->num_elements = 1;
+
+                ++new_node->num_elements; 
                 if (tail) {
                     tail->next = new_node;
                 } else {
@@ -561,18 +601,20 @@ public:
     }
 
     void clear() noexcept {
-        while (head) {
-            Node* next = head->next;
+        Node* current = head;
+        while (current != nullptr) {
+            Node* next = current->next;
 
-            for (size_t i = 0; i < head->num_elements; ++i) {
-                std::allocator_traits<Allocator>::destroy(allocator, &head->elements[i]);
+            for (size_t i = 0; i < current->num_elements; ++i) {
+                std::allocator_traits<Allocator>::destroy(allocator, &current->elements[i]);
             }
 
-            std::allocator_traits<NodeAllocator>::deallocate(node_allocator, head, 1);
-            head = next;
+            // std::allocator_traits<NodeAllocator>::destroy(node_allocator, current);
+            std::allocator_traits<NodeAllocator>::deallocate(node_allocator, current, 1);
+            current = next;
         }
-        
-        head = tail = nullptr;
+        tail = nullptr;
+        head = nullptr;
         total_elements_cnt = 0;
     }
 
