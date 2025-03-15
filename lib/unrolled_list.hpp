@@ -771,6 +771,18 @@ private:
         else tail = node;
         destroy_node(next_node);
     }
+
+    void merge_with_prev(Node* node) {
+        Node* prev_node = node->prev;
+        for (size_t i = 0; i < node->num_elements; ++i) {
+            prev_node->elements[prev_node->num_elements++] 
+                     = std::move(node->elements[i]);
+        }
+        prev_node->next = node->next;
+        if (node->next) node->next->prev = prev_node;
+        else tail = prev_node;
+        destroy_node(node);
+    }
 };
 
 // template<typename T, size_t NodeMaxSize, typename Allocator>
