@@ -6,8 +6,6 @@
 #include <iterator>
 #include <initializer_list>
 
-static int cnt = 0;
-
 template<typename T, size_t NodeMaxSize = 10, typename Allocator = std::allocator<T>>
 class unrolled_list {
 public:
@@ -26,7 +24,9 @@ private:
         Node* next;
     };
 
-    using NodeAllocator = typename std::allocator_traits<Allocator>::template rebind_alloc<Node>;
+    using AllcTraits = std::allocator_traits<Allocator>;
+    using NodeAllocator = typename AllcTraits::template rebind_alloc<Node>;
+    using NodeAllcTraits = std::allocator_traits<NodeAllocator>;
 
     Node* head = nullptr;
     Node* tail = nullptr;
@@ -110,7 +110,8 @@ public:
         }
 
         bool operator==(const iterator& other) const {
-            return current_node == other.current_node && current_pos  == other.current_pos;
+            return     current_node == other.current_node 
+                    && current_pos  == other.current_pos;
         }
 
         bool operator!=(const iterator& other) const {
@@ -125,14 +126,15 @@ public:
         using const_reference = const T&;
         using const_pointer = const T*;
         using difference_type = ptrdiff_t;
+        using size_type = size_t;
     
     private:
         Node* current_node;
-        size_t current_pos;
+        size_type current_pos;
 
         friend unrolled_list;
     public:
-        const_iterator(Node* node = nullptr, size_t pos = 0)
+        const_iterator(Node* node = nullptr, size_type pos = 0)
         : 
             current_node(node), 
             current_pos(pos) 
@@ -197,7 +199,8 @@ public:
         }
 
         bool operator==(const const_iterator& other) const {
-            return current_node == other.current_node && current_pos == other.current_pos;
+            return     current_node == other.current_node 
+                    && current_pos == other.current_pos;
         }
 
         bool operator!=(const const_iterator& other) const {
@@ -252,15 +255,22 @@ public:
     }
 
     template<typename InputIt>
-    unrolled_list(InputIt i, InputIt j) {
-        unrolled_list temp;
-
-        for (; i != j; ++i) {
-            temp.push_back(*i);
+    unrolled_list(InputIt i, InputIt j)
+    :
+        head(nullptr),
+        tail(nullptr),
+        total_elements_cnt(0)
+    {    
+    unrolled_list temp;
+        try {
+            for (; i != j; ++i) {
+                temp.push_back(*i);
+            }
+        } catch (...) {
+            temp.~unrolled_list();
+            throw;
         }
-
-
-        std::swap(temp, *this);
+        swap(temp);
     }
 
     template<typename InputIt>
@@ -343,37 +353,51 @@ public:
     
         Node* new_node = nullptr;
         T* temp_buffer = nullptr;
-        try {
-            temp_buffer = static_cast<T*>(::operator new((NodeMaxSize + 1) * sizeof(T)));
-            size_t temp_index = 0;
+        size_t temp_index = 0;
     
+        try {
+            using AllocTraits = std::allocator_traits<Allocator>;
+
+            temp_buffer = allocator.allocate(NodeMaxSize + 1);
+        
             for (size_t i = 0; i < pos_in_node; ++i) {
-                new (&temp_buffer[temp_index++]) T(current_node->elements[i]);
+                AllocTraits::construct(allocator, &temp_buffer[temp_index++], 
+                                       current_node->elements[i]);
             }
     
-            new (&temp_buffer[temp_index++]) T(value);
+            AllocTraits::construct(allocator, 
+                                   &temp_buffer[temp_index++], 
+                                   value);
     
-            for (size_t i = pos_in_node; i < NodeMaxSize; ++i) {
-                new (&temp_buffer[temp_index++]) T(current_node->elements[i]);
+            for (size_t i = pos_in_node; i < current_node->num_elements; ++i) {
+                AllocTraits::construct(allocator, 
+                                      &temp_buffer[temp_index++], 
+                                      current_node->elements[i]);
             }
     
             new_node = node_allocator.allocate(1);
             new_node->num_elements = 0;
             new_node->prev = new_node->next = nullptr;
     
-            const size_t split_pos = (NodeMaxSize + 1) / 2;
-    
-            for (size_t i = 0; i < NodeMaxSize; ++i) {
-                current_node->elements[i].~T();
+            for (size_t i = 0; i < current_node->num_elements; ++i) {
+                AllocTraits::destroy(allocator, &current_node->elements[i]);
             }
+    
+            const size_t split_pos = (NodeMaxSize + 1) / 2;
     
             current_node->num_elements = 0;
             for (size_t i = 0; i < split_pos; ++i) {
-                new (&current_node->elements[current_node->num_elements++]) T(temp_buffer[i]);
+                AllocTraits::construct(allocator, 
+                                      &current_node
+                                      ->elements[current_node->num_elements++], 
+                                      temp_buffer[i]);
             }
     
             for (size_t i = split_pos; i < temp_index; ++i) {
-                new (&new_node->elements[new_node->num_elements++]) T(temp_buffer[i]);
+                AllocTraits::construct(allocator, 
+                                      &new_node->
+                                      elements[new_node->num_elements++],
+                                    temp_buffer[i]);
             }
     
             new_node->next = current_node->next;
@@ -385,19 +409,22 @@ public:
             total_elements_cnt++;
     
             for (size_t i = 0; i < temp_index; ++i) {
-                temp_buffer[i].~T();
+                AllocTraits::destroy(allocator, &temp_buffer[i]);
             }
-            ::operator delete(temp_buffer);
+            allocator.deallocate(temp_buffer, NodeMaxSize + 1);
     
         } catch (...) {
             if (temp_buffer) {
-                for (size_t i = 0; i < NodeMaxSize + 1; ++i) temp_buffer[i].~T();
-                ::operator delete(temp_buffer);
+                for (size_t i = 0; i < temp_index; ++i) {
+                    std::allocator_traits<Allocator>::destroy(allocator, 
+                                                              &temp_buffer[i]);
+                }
+                allocator.deallocate(temp_buffer, NodeMaxSize + 1);
             }
             if (new_node) node_allocator.deallocate(new_node, 1);
             throw;
         }
-
+    
         const size_t kSplitPos = NodeMaxSize / 2;
     
         if (pos_in_node < kSplitPos) {
@@ -437,7 +464,9 @@ public:
         Node* node = pos.current_node;
         size_t pos_in_node = pos.current_pos;
     
-        std::allocator_traits<Allocator>::destroy(allocator, &node->elements[pos_in_node]);
+        std::allocator_traits<Allocator>::destroy(allocator, 
+                                                  &node
+                                                  ->elements[pos_in_node]);
         for (size_t i = pos_in_node; i < node->num_elements - 1; ++i) {
             node->elements[i] = std::move(node->elements[i+1]);
         }
@@ -454,14 +483,18 @@ public:
         }
     
         if (node->num_elements < NodeMaxSize / 2) {
-            if (node->next && node->next->num_elements + node->num_elements <= NodeMaxSize) {
+            if (node->next && node->next->num_elements 
+                            + node->num_elements <= NodeMaxSize) {
                 merge_with_next(node);
-            } else if (node->prev && node->prev->num_elements + node->num_elements <= NodeMaxSize) {
+            } else if (node->prev && node->prev->num_elements
+                                   + node->num_elements <= NodeMaxSize) {
                 merge_with_prev(node);
             }
         }
     
-        return (pos_in_node < node->num_elements) ? iterator(node, pos_in_node) : iterator(node->next, 0);
+        return (pos_in_node < node->num_elements) 
+               ? iterator(node, pos_in_node)
+               : iterator(node->next, 0);
     }
 
     iterator erase(const_iterator first, const_iterator last) {
@@ -493,29 +526,29 @@ public:
     void push_front(const value_type& t) {
         if (head && head->num_elements < NodeMaxSize) {
             for (size_t i = head->num_elements; i > 0; --i) {
-                std::allocator_traits<Allocator>::construct(allocator, head->elements + i,
-                std::move_if_noexcept(head->elements[i - 1]));
-                std::allocator_traits<Allocator>::destroy(allocator, head->elements + i - 1);
+                AllcTraits::construct(allocator, head->elements + i,
+                                     head->elements[i - 1]);
+                AllcTraits::destroy(allocator, head->elements + i - 1);
             }
             try {
-                std::allocator_traits<Allocator>::construct(allocator, head->elements, t);
+                AllcTraits::construct(allocator, head->elements, t);
             } catch (...) {
                 for (size_t i = 0; i < head->num_elements; ++i) {
-                    std::allocator_traits<Allocator>::construct(allocator, head->elements + i,
-                        std::move_if_noexcept(head->elements[i + 1]));
-                    std::allocator_traits<Allocator>::destroy(allocator, head->elements + i + 1);
+                    AllcTraits::construct(allocator, head->elements + i, 
+                                         head->elements[i + 1]);
+                    AllcTraits::destroy(allocator, head->elements + i + 1);
                 }
                 throw;
             }
             ++head->num_elements;
             ++total_elements_cnt;
         } else {
-            Node* new_node = std::allocator_traits<NodeAllocator>::allocate(node_allocator, 1);
+            Node* new_node = NodeAllcTraits::allocate(node_allocator, 1);
             new_node->num_elements = 0;
             new_node->next = head;
             new_node->prev = nullptr;
             try {
-                std::allocator_traits<Allocator>::construct(allocator, new_node->elements, t);
+                AllcTraits::construct(allocator, new_node->elements, t);
                 new_node->num_elements = 1;
                 if (head) {
                     head->prev = new_node;
@@ -525,7 +558,7 @@ public:
                 head = new_node;
                 ++total_elements_cnt;
             } catch (...) {
-                std::allocator_traits<NodeAllocator>::deallocate(node_allocator, new_node, 1);
+                NodeAllcTraits::deallocate(node_allocator, new_node, 1);
                 throw;
             }
         }
@@ -534,11 +567,12 @@ public:
     void pop_front() noexcept {
         if (!head) return;
         
-        std::allocator_traits<Allocator>::destroy(allocator, head->elements);
+        AllcTraits::destroy(allocator, head->elements);
         for (size_t i = 1; i < head->num_elements; ++i) {
-            std::allocator_traits<Allocator>::construct(allocator, head->elements + i - 1,
-            std::move_if_noexcept(head->elements[i]));
-            std::allocator_traits<Allocator>::destroy(allocator, head->elements + i);
+            AllcTraits::construct(allocator, 
+                                  head->elements + i - 1,
+                                  head->elements[i]);
+            AllcTraits::destroy(allocator, head->elements + i);
         }
         --head->num_elements;
         --total_elements_cnt;
@@ -548,26 +582,27 @@ public:
             head = head->next;
             if (head) head->prev = nullptr;
             else tail = nullptr;
-            std::allocator_traits<NodeAllocator>::deallocate(node_allocator, old_head, 1);
+            NodeAllcTraits::deallocate(node_allocator, old_head, 1);
         }
     }
 
     void push_back(const value_type& t) {
         if (tail && tail->num_elements < NodeMaxSize) {
             try {
-                std::allocator_traits<Allocator>::construct(allocator, tail->elements + tail->num_elements, t);
+                AllcTraits::construct(allocator, tail->elements 
+                                      + tail->num_elements, t);
                 ++tail->num_elements;
                 ++total_elements_cnt;
             } catch (...) {
                 throw;
             }
         } else {
-            Node* new_node = std::allocator_traits<NodeAllocator>::allocate(node_allocator, 1);
+            Node* new_node = NodeAllcTraits::allocate(node_allocator, 1);
             new_node->num_elements = 0;
             new_node->prev = tail;
             new_node->next = nullptr;
             try {
-                std::allocator_traits<Allocator>::construct(allocator, new_node->elements, t);
+                AllcTraits::construct(allocator, new_node->elements, t);
 
                 ++new_node->num_elements; 
                 if (tail) {
@@ -578,7 +613,7 @@ public:
                 tail = new_node;
                 ++total_elements_cnt;
             } catch (...) {
-                std::allocator_traits<NodeAllocator>::deallocate(node_allocator, new_node, 1);
+                NodeAllcTraits::deallocate(node_allocator, new_node, 1);
                 throw;
             }
         }
@@ -588,7 +623,7 @@ public:
         if (!tail) return;
         
         --tail->num_elements;
-        std::allocator_traits<Allocator>::destroy(allocator, tail->elements + tail->num_elements);
+        AllcTraits::destroy(allocator, tail->elements + tail->num_elements);
         --total_elements_cnt;
         
         if (tail->num_elements == 0) {
@@ -596,7 +631,7 @@ public:
             tail = tail->prev;
             if (tail) tail->next = nullptr;
             else head = nullptr;
-            std::allocator_traits<NodeAllocator>::deallocate(node_allocator, old_tail, 1);
+            NodeAllcTraits::deallocate(node_allocator, old_tail, 1);
         }
     }
 
@@ -606,32 +641,15 @@ public:
             Node* next = current->next;
 
             for (size_t i = 0; i < current->num_elements; ++i) {
-                std::allocator_traits<Allocator>::destroy(allocator, &current->elements[i]);
+                AllcTraits::destroy(allocator, &current->elements[i]);
             }
 
-            // std::allocator_traits<NodeAllocator>::destroy(node_allocator, current);
-            std::allocator_traits<NodeAllocator>::deallocate(node_allocator, current, 1);
+            NodeAllcTraits::deallocate(node_allocator, current, 1);
             current = next;
         }
         tail = nullptr;
         head = nullptr;
         total_elements_cnt = 0;
-    }
-
-    reference at(size_type n) {
-        if (n >= total_elements_cnt) {
-            throw std::out_of_range("unrolled_list::at");
-        }
-
-        return *(begin() + n);
-    }
-
-    const_reference at(size_type n) const {
-        if (n >= total_elements_cnt) {
-            throw std::out_of_range("unrolled_list::at");
-        }
-
-        return *(begin() + n);
     }
 
     iterator begin() { 
@@ -697,14 +715,14 @@ public:
     }
 
     void swap(unrolled_list& other) noexcept(
-        std::allocator_traits<NodeAllocator>::propagate_on_container_swap::value ||
-        std::allocator_traits<NodeAllocator>::is_always_equal::value
+        NodeAllcTraits::propagate_on_container_swap::value ||
+        NodeAllcTraits::is_always_equal::value
     ) {
         std::swap(head, other.head);
         std::swap(tail, other.tail);
         std::swap(total_elements_cnt, other.total_elements_cnt);
         
-        if constexpr (std::allocator_traits<NodeAllocator>::propagate_on_container_swap::value) {
+        if constexpr (NodeAllcTraits::propagate_on_container_swap::value) {
             std::swap(node_allocator, other.node_allocator);
             std::swap(allocator, other.allocator);
         }
@@ -715,9 +733,11 @@ public:
     }
 
     size_type max_size() const noexcept {
-        const size_type node_max = std::allocator_traits<NodeAllocator>::max_size(node_allocator);
+        const size_type node_max = NodeAllcTraits::max_size(node_allocator);
         const size_type elements_max = node_max * NodeMaxSize;
-        return std::min(elements_max, (size_type)std::numeric_limits<difference_type>::max());
+        return std::min(elements_max, static_cast<size_type>(
+                        std::numeric_limits<difference_type>::max())
+                        );
     }
     
     bool empty() {
@@ -735,7 +755,7 @@ private:
 
     void destroy_node(Node* node) noexcept {
         for (size_t i = 0; i < node->num_elements; ++i) {
-            std::allocator_traits<Allocator>::destroy(allocator, &node->elements[i]);
+            AllcTraits::destroy(allocator, &node->elements[i]);
         }
         node_allocator.deallocate(node, 1);
     }
@@ -743,7 +763,8 @@ private:
     void merge_with_next(Node* node) {
         Node* next_node = node->next;
         for (size_t i = 0; i < next_node->num_elements; ++i) {
-            node->elements[node->num_elements++] = std::move(next_node->elements[i]);
+            node->elements[node->num_elements++] = std::move(next_node
+                                                             ->elements[i]);
         }
         node->next = next_node->next;
         if (next_node->next) next_node->next->prev = node;
