@@ -34,6 +34,5 @@
 # 
 dev.cpp
 tasks.md
-.qodo
 .vscode
 /build/
