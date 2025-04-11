@@ -30,3 +30,9 @@
 *.exe
 *.out
 *.app
+
+# 
+dev.cpp
+tasks.md
+.vscode
+/build/
