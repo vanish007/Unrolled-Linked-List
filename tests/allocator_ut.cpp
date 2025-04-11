@@ -1,20 +1,20 @@
-#include <unrolled_list.h>
+#include <unrolled_list.hpp>
 
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
 class NodeTag {};
 
-class SomeObj {
+class SomeObj1 {
 public:
     static inline int ConstructorCalled = 0;
     static inline int DestructorCalled = 0;
 
-    SomeObj() {
+    SomeObj1() {
         ++ConstructorCalled;
     }
 
-    ~SomeObj() {
+    ~SomeObj1() {
         ++DestructorCalled;
     }
 };
@@ -47,9 +47,9 @@ public:
     }
 
     pointer allocate(size_type sz) {
-        if constexpr (std::is_same_v<T, SomeObj>) {
-            ++TestAllocator<SomeObj>::AllocationCount;
-            TestAllocator<SomeObj>::ElementsAllocated += sz;
+        if constexpr (std::is_same_v<T, SomeObj1>) {
+            ++TestAllocator<SomeObj1>::AllocationCount;
+            TestAllocator<SomeObj1>::ElementsAllocated += sz;
         } else {
             ++TestAllocator<NodeTag>::AllocationCount;
             TestAllocator<NodeTag>::ElementsAllocated += sz;
@@ -68,16 +68,16 @@ public:
 };
 
 
-static_assert(AllocatorRequirements<TestAllocator<SomeObj>>);
+static_assert(AllocatorRequirements<TestAllocator<SomeObj1>>);
 
 class WorkWithAllocatorTest : public testing::Test {
 public:
     void SetUp() override {
-        SomeObj::ConstructorCalled = 0;
-        SomeObj::DestructorCalled = 0;
+        SomeObj1::ConstructorCalled = 0;
+        SomeObj1::DestructorCalled = 0;
 
-        TestAllocator<SomeObj>::AllocationCount = 0;
-        TestAllocator<SomeObj>::ElementsAllocated = 0;
+        TestAllocator<SomeObj1>::AllocationCount = 0;
+        TestAllocator<SomeObj1>::ElementsAllocated = 0;
 
         TestAllocator<NodeTag>::AllocationCount = 0;
         TestAllocator<NodeTag>::ElementsAllocated = 0;
@@ -91,20 +91,20 @@ public:
     Ожидается, что будет:
         1. 3 аллокации Node
         2. 3 создания Node
-        3. 11 конструкторов и деструкторов у SomeObj
+        3. 11 конструкторов и деструкторов у SomeObj1
 */
 TEST_F(WorkWithAllocatorTest, simplePushBack) {
-    TestAllocator<SomeObj> allocator;
-    unrolled_list<SomeObj, 5, TestAllocator<SomeObj>> list(allocator);
+    TestAllocator<SomeObj1> allocator;
+    unrolled_list<SomeObj1, 5, TestAllocator<SomeObj1>> list(allocator);
     for (int i = 0; i < 11; ++i) {
-        list.push_back(SomeObj{});
+        list.push_back(SomeObj1{});
     }
 
     ASSERT_EQ(TestAllocator<NodeTag>::AllocationCount, 3);
     ASSERT_EQ(TestAllocator<NodeTag>::ElementsAllocated, 3);
 
-    ASSERT_EQ(TestAllocator<SomeObj>::AllocationCount, 0);
+    ASSERT_EQ(TestAllocator<SomeObj1>::AllocationCount, 0);
 
-    ASSERT_EQ(SomeObj::ConstructorCalled, 11);
-    ASSERT_EQ(SomeObj::DestructorCalled, 11);
+    ASSERT_EQ(SomeObj1::ConstructorCalled, 11);
+    ASSERT_EQ(SomeObj1::DestructorCalled, 11);
 }

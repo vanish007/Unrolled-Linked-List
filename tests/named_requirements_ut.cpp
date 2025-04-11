@@ -1,4 +1,4 @@
-#include <unrolled_list.h>
+#include <unrolled_list.hpp>
 #include <gtest/gtest.h>
 #include <iterator>
 
@@ -106,9 +106,12 @@ TEST(NamedRequirements, SequenceContainer) {
     static_assert(SequenceContainer<unrolled_list<int, 10>>);
 }
 
-
 TEST(NamedRequirements, ReversibleContainer) {
     static_assert(ReversibleContainer<unrolled_list<int, 10>>);
 }
 
-
+TEST(NamedRequirements, BidirectionalIterator) {
+    using Container = unrolled_list<int, 10, std::allocator<int>>;
+    static_assert(std::bidirectional_iterator<typename Container::iterator>);
+    static_assert(std::bidirectional_iterator<typename Container::const_iterator>);
+}
